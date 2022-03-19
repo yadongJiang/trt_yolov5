@@ -18,6 +18,28 @@ YOLOV5::YOLOV5(const OnnxDynamicNetInitParam& params) : params_(params)
 	}
 }
 
+YOLOV5::~YOLOV5()
+{
+	cudaStreamSynchronize(stream_);
+	cudaStreamDestroy(stream_);
+	if (h_input_tensor_ != NULL)
+		cudaFreeHost(h_input_tensor_);
+	if (h_output_tensor8_ != NULL)
+		cudaFreeHost(h_output_tensor8_);
+	if (h_output_tensor16_ != NULL)
+		cudaFreeHost(h_output_tensor16_);
+	if (h_output_tensor32_ != NULL)
+		cudaFreeHost(h_output_tensor32_);
+	if (d_input_tensor_ != NULL)
+		cudaFree(d_input_tensor_);
+	if (d_output_tensor8_ != NULL)
+		cudaFree(d_output_tensor8_);
+	if (d_output_tensor16_ != NULL)
+		cudaFree(d_output_tensor16_);
+	if (d_output_tensor32_ != NULL)
+		cudaFree(d_output_tensor32_);
+}
+
 bool YOLOV5::CheckFileExist(const std::string& path)
 {
 	std::fstream check_file(path);
@@ -150,7 +172,8 @@ void YOLOV5::Extract(const cv::Mat& img)
 
 	PreprocessCPU(img);
 	Forward();
-	PostprocessCPU();
+	//PostprocessCPU();
+	PostprocessGPU();
 }
 
 void YOLOV5::Forward()
@@ -188,30 +211,69 @@ void YOLOV5::PreprocessCPU(const cv::Mat& img)
 void YOLOV5::PostprocessCPU()
 {
 	cudaMemcpy(h_output_tensor8_, d_output_tensor8_, out_shape8_.count()*sizeof(float), cudaMemcpyDeviceToHost);
-	cout << "out_shape8_ count: " << out_shape8_.count() << endl;
 	cudaMemcpy(h_output_tensor16_, d_output_tensor16_, out_shape16_.count() * sizeof(float), cudaMemcpyDeviceToHost);
-	cout << "out_shape16_ count: " << out_shape16_.count() << endl;
 	cudaMemcpy(h_output_tensor32_, d_output_tensor32_, out_shape32_.count() * sizeof(float), cudaMemcpyDeviceToHost);
-	cout << "out_shape32_ count: " << out_shape32_.count() << endl;
 
 	filted_pred_boxes_.clear();
 	DecodeBoxes(h_output_tensor8_, out_shape8_.channels(), out_shape8_.height(), out_shape8_.width(), 8, 0);
 	DecodeBoxes(h_output_tensor16_, out_shape16_.channels(), out_shape16_.height(), out_shape16_.width(), 16, 1);
 	DecodeBoxes(h_output_tensor32_, out_shape32_.channels(), out_shape32_.height(), out_shape32_.width(), 32, 2);
-
 	cout << "filted_pred_boxes_ size: " << filted_pred_boxes_.size() << endl;
 
 	vector<BoxInfo> pred_boxes = NMS();
 	cout << "pred boxes size: " << pred_boxes.size() << endl;
 
-	// cv::Mat img = cv::imread("leter_resize.jpg");
-	// for (auto& box : pred_boxes)
-	// {
-	// 	cv::rectangle(img, cv::Rect(box.x1, box.y1,
-	// 		box.x2 - box.x1, box.y2 - box.y1), cv::Scalar(0, 0, 255), 2);
-	// }
-	// cv::imshow("img", img);
-	// cv::waitKey();
+	/*cv::Mat img = cv::imread("float_sample2.jpg");
+	for (auto& box : pred_boxes)
+	{
+		cv::rectangle(img, cv::Rect(box.x1, box.y1,
+			box.x2 - box.x1, box.y2 - box.y1), cv::Scalar(0, 0, 255), 2);
+	}
+	cv::imshow("img", img);
+	cv::waitKey();*/
+}
+
+void YOLOV5::PostprocessGPU()
+{
+	int height = input_shape_.height();
+	int width = input_shape_.width();
+	int no = out_shape8_.no();
+
+	float* dev_ptr;
+	int count8 = 3 * (height / 8) * (width / 8) * no;
+	int count16 = 3 * (height / 16) * (width / 16) * no;
+	int count32 = 3 * (height / 32) * (width / 32) * no;
+	int counts = count8 + count16 + count32;
+	cudaMalloc((void**)&dev_ptr, counts * sizeof(float));
+	cudaMemcpy(dev_ptr, d_output_tensor8_, count8 * sizeof(float), cudaMemcpyDeviceToDevice);
+	cudaMemcpy(dev_ptr + count8, d_output_tensor16_, count16 * sizeof(float), cudaMemcpyDeviceToDevice);
+	cudaMemcpy(dev_ptr + count8 + count16, d_output_tensor32_, count32 * sizeof(float), cudaMemcpyDeviceToDevice);
+
+	postprocess(dev_ptr, height, width, no, counts);
+
+	cudaMemcpy(h_output_tensor8_, dev_ptr, count8 * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_output_tensor16_, dev_ptr + count8, count16 * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_output_tensor32_, dev_ptr + count8 + count16, count32 * sizeof(float), cudaMemcpyDeviceToHost);
+
+	filted_pred_boxes_.clear();
+	DecodeBoxesGPU(h_output_tensor8_, out_shape8_.channels(), out_shape8_.height(), out_shape8_.width());
+	DecodeBoxesGPU(h_output_tensor16_, out_shape16_.channels(), out_shape16_.height(), out_shape16_.width());
+	DecodeBoxesGPU(h_output_tensor32_, out_shape32_.channels(), out_shape32_.height(), out_shape32_.width());
+	cout << "filted_pred_boxes_ size: " << filted_pred_boxes_.size() << endl;
+
+	vector<BoxInfo> pred_boxes = NMS();
+	cout << "pred boxes size: " << pred_boxes.size() << endl;
+
+	/*cv::Mat img = cv::imread("float_sample2.jpg");
+	for (auto& box : pred_boxes)
+	{
+		cv::rectangle(img, cv::Rect(box.x1, box.y1,
+			box.x2 - box.x1, box.y2 - box.y1), cv::Scalar(0, 0, 255), 2);
+	}
+	cv::imshow("img", img);
+	cv::waitKey();*/
+
+	cudaFree(dev_ptr);
 }
 
 void YOLOV5::DecodeBoxes(float* ptr, int channels, int height, int width, int stride, int layer_idx)
@@ -254,6 +316,42 @@ void YOLOV5::DecodeBoxes(float* ptr, int channels, int height, int width, int st
 							ptr[offset + 0] + ptr[offset + 2] / 2,
 							ptr[offset + 1] + ptr[offset + 3] / 2,
 						    class_conf, score, class_pred);
+
+				filted_pred_boxes_.emplace_back(box);
+			}
+		}
+	}
+}
+
+void YOLOV5::DecodeBoxesGPU(float* ptr, int channels, int height, int width)
+{
+	int no = out_shape8_.no();
+
+	for (int c = 0; c < channels; c++)
+	{
+		for (int row = 0; row < height; row++)
+		{
+			for (int col = 0; col < width; col++)
+			{
+				int offset = c * height * width * no + (row * width + col) * no;
+				float obj_conf = ptr[offset + 4];
+				if (obj_conf <= conf_thres_)
+					continue;
+
+				float class_conf;
+				int class_pred;
+				vector<float> vec(ptr + offset + 4, ptr + offset + no);
+				FindMaxConfAndIdx(vec, class_conf, class_pred);
+
+				float score = class_conf * obj_conf;
+				if (score <= conf_thres_)
+					continue;
+
+				BoxInfo box(ptr[offset + 0] - ptr[offset + 2] / 2,
+					ptr[offset + 1] - ptr[offset + 3] / 2,
+					ptr[offset + 0] + ptr[offset + 2] / 2,
+					ptr[offset + 1] + ptr[offset + 3] / 2,
+					class_conf, score, class_pred);
 
 				filted_pred_boxes_.emplace_back(box);
 			}

@@ -26,6 +26,8 @@ public:
 	YOLOV5() = delete;
 	YOLOV5(const OnnxDynamicNetInitParam& param);
 
+	~YOLOV5();
+
 	void Extract(const cv::Mat& img);
 
 private:
@@ -72,8 +74,10 @@ private:
 	void PreprocessCPU(const cv::Mat& img);
 	
 	void PostprocessCPU();
+	void PostprocessGPU();
 
 	void DecodeBoxes(float *ptr, int channels, int height, int width, int stride, int layer_idx);
+	void DecodeBoxesGPU(float* ptr, int channels, int height, int width);
 
 	vector<BoxInfo> NMS();
 
