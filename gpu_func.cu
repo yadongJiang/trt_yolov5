@@ -1,6 +1,8 @@
 #include "gpu_func.cuh"
 
-__constant__  float con_anchors[18];
+__constant__  float con_anchors[18] = { 10, 13 , 16, 30, 33, 23, 
+										30, 61, 62, 45, 59, 119, 
+										116, 90, 156, 198, 373, 326 };
 
 __device__ void dev_sigmoid(float* ptr, int len)
 {
@@ -67,15 +69,12 @@ __global__ void process_kernel(float* dev_ptr, int height, int width, int no, in
 
 void postprocess(float* dev_ptr, int height, int width, int no, int counts)
 {
-	float anchors[18] = { 10, 13 , 16, 30, 33, 23, 
-						  30, 61, 62, 45, 59, 119, 
-						  116, 90, 156, 198, 373, 326 };
-	cudaMemcpyToSymbol(con_anchors, anchors, 18 * sizeof(float));
-	/*float* dev_anchors;
-	cudaMalloc((void**)&dev_anchors, 18 * sizeof(float));
-	cudaMemcpy(dev_anchors, anchors, 18 * sizeof(float), cudaMemcpyHostToDevice);*/
+	// float anchors[18] = { 10, 13 , 16, 30, 33, 23, 
+	// 					  30, 61, 62, 45, 59, 119, 
+	// 					  116, 90, 156, 198, 373, 326 };
+	// cudaMemcpyToSymbol(con_anchors, anchors, 18 * sizeof(float));
 
 	dim3 grids(std::ceil(float(counts/no) / 32));
 	dim3 blocks(32);
-	process_kernel << <grids, blocks >> > (dev_ptr, height, width, no, counts / no);  // , dev_anchors
+	process_kernel << <grids, blocks >> > (dev_ptr, height, width, no, counts / no); 
 }
