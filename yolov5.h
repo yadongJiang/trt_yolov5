@@ -18,6 +18,7 @@ struct OnnxDynamicNetInitParam
 	std::string rt_stream_path = "./";
 	std::string rt_model_name = "defaule.gie";
 	bool use_fp16_ = true;
+	int num_classes;
 };
 
 class YOLOV5
@@ -28,7 +29,7 @@ public:
 
 	~YOLOV5();
 
-	void Extract(const cv::Mat& img);
+	vector<BoxInfo> Extract(const cv::Mat& img);
 
 private:
 	class Logger : public nvinfer1::ILogger
@@ -73,8 +74,8 @@ private:
 	void Forward();
 	void PreprocessCPU(const cv::Mat& img);
 	
-	void PostprocessCPU();
-	void PostprocessGPU();
+	vector<BoxInfo> PostprocessCPU();
+	vector<BoxInfo> PostprocessGPU();
 
 	void DecodeBoxes(float *ptr, int channels, int height, int width, int stride, int layer_idx);
 	void DecodeBoxesGPU(float* ptr, int channels, int height, int width);
@@ -93,9 +94,12 @@ private:
 	inline void FindMaxConfAndIdx(const vector<float>& vec,
 						float& class_conf, int& class_pred);
 
-	void RefineBoxes();
+	// 调整预测框，使框的值处于合理范围
+	inline void YOLOV5::RefineBoxes();
 
 	inline float IOU(BoxInfo& b1, BoxInfo& b2);
+
+	void coord_scale(vector<BoxInfo>& pred_boxes);
 
 private:
 	OnnxDynamicNetInitParam params_;
@@ -115,9 +119,9 @@ private:
 	cv::Size crop_size_{ 640, 640 };
 
 	Shape input_shape_{1, 3, 640, 640};
-	Shape out_shape8_{1, 3, 80, 80, 6};
-	Shape out_shape16_{ 1, 3, 40, 40, 6 };
-	Shape out_shape32_{ 1, 3, 20, 20, 6 };
+	Shape out_shape8_{1, 3, 80, 80, 5+1}; // 默认num_classes=1,可在params中设置num_classes
+	Shape out_shape16_{ 1, 3, 40, 40, 5+1 };
+	Shape out_shape32_{ 1, 3, 20, 20, 5+1 };
 
 	vector<vector<vector<float>>> anchors_{
 		{ {10, 13}, {16, 30}, { 33, 23} },
@@ -140,7 +144,11 @@ private:
 	float* h_output_tensor32_;
 	float* d_output_tensor32_;
 
+	float* dev_ptr_;
+
 	vector<void *> buffers_;
+
+	float rate_;
 };
 
 #endif

@@ -4,12 +4,17 @@
 #include <assert.h>
 #include "mat_transform.hpp"
 #include "gpu_func.cuh"
+#include <time.h>
 
 YOLOV5::YOLOV5(const OnnxDynamicNetInitParam& params) : params_(params)
 {
 	cout << "start init ..." << endl;
 	cudaSetDevice(params.gpu_id);
 	cudaStreamCreate(&stream_);
+	
+	out_shape8_.set_no(5 + params.num_classes);
+	out_shape16_.set_no(5 + params.num_classes);
+	out_shape32_.set_no(5 + params.num_classes);
 
 	if (!LoadGieStreamBuildContext(params.rt_stream_path + params.rt_model_name))
 	{
@@ -38,6 +43,8 @@ YOLOV5::~YOLOV5()
 		cudaFree(d_output_tensor16_);
 	if (d_output_tensor32_ != NULL)
 		cudaFree(d_output_tensor32_);
+	if (dev_ptr_ != NULL)
+		cudaFree(dev_ptr_);
 }
 
 bool YOLOV5::CheckFileExist(const std::string& path)
@@ -157,23 +164,29 @@ void YOLOV5::mallocInputOutput()
 	cudaHostAlloc((void**)&h_output_tensor32_, out_shape32_.count() * sizeof(float), cudaHostAllocDefault);  // 3 * 20 * 20 * 6
 	cudaMalloc((void**)&d_output_tensor32_, out_shape32_.count() * sizeof(float));  // 3 * 20 * 20 * 6
 
-	buffers_.push_back(d_input_tensor_);
+	buffers_.push_back(d_input_tensor_); 
 	buffers_.push_back(d_output_tensor8_);
 	buffers_.push_back(d_output_tensor16_);
 	buffers_.push_back(d_output_tensor32_);
+
+	cudaMalloc((void**)&dev_ptr_, (out_shape8_.count() + out_shape16_.count() + out_shape32_.count()) * sizeof(float));
 }
 
 // ---------------------------- FOR INFERENCE -----------------------------
 
-void YOLOV5::Extract(const cv::Mat& img)
+vector<BoxInfo> YOLOV5::Extract(const cv::Mat& img)
 {
 	if (img.empty())
-		return;
+		return {};
 
+	
 	PreprocessCPU(img);
 	Forward();
-	//PostprocessCPU();
-	PostprocessGPU();
+
+	/*auto pred_boxes = PostprocessCPU();*/
+	auto pred_boxes = PostprocessGPU();
+	coord_scale(pred_boxes);
+	return move(pred_boxes);
 }
 
 void YOLOV5::Forward()
@@ -197,6 +210,9 @@ void YOLOV5::PreprocessCPU(const cv::Mat& img)
 
 	cv::Mat sample_float = compose(img_tmp);
 
+	// 为了最后将检测框映射会原图尺度
+	rate_ = (float)sample_float.rows / img.rows;
+
 	input_shape_.Reshape(1, sample_float.channels(), sample_float.rows, sample_float.cols);
 	out_shape8_.Reshape(1, 3, sample_float.rows / 8, sample_float.cols / 8);
 	out_shape16_.Reshape(1, 3, sample_float.rows / 16, sample_float.cols / 16);
@@ -208,8 +224,9 @@ void YOLOV5::PreprocessCPU(const cv::Mat& img)
 	cv::split(sample_float, channels);
 }
 
-void YOLOV5::PostprocessCPU()
+vector<BoxInfo> YOLOV5::PostprocessCPU()
 {
+	std::cout << "---------- PostprocessCPU ----------------------" << std::endl;
 	cudaMemcpy(h_output_tensor8_, d_output_tensor8_, out_shape8_.count()*sizeof(float), cudaMemcpyDeviceToHost);
 	cudaMemcpy(h_output_tensor16_, d_output_tensor16_, out_shape16_.count() * sizeof(float), cudaMemcpyDeviceToHost);
 	cudaMemcpy(h_output_tensor32_, d_output_tensor32_, out_shape32_.count() * sizeof(float), cudaMemcpyDeviceToHost);
@@ -223,57 +240,38 @@ void YOLOV5::PostprocessCPU()
 	vector<BoxInfo> pred_boxes = NMS();
 	cout << "pred boxes size: " << pred_boxes.size() << endl;
 
-	/*cv::Mat img = cv::imread("float_sample2.jpg");
-	for (auto& box : pred_boxes)
-	{
-		cv::rectangle(img, cv::Rect(box.x1, box.y1,
-			box.x2 - box.x1, box.y2 - box.y1), cv::Scalar(0, 0, 255), 2);
-	}
-	cv::imshow("img", img);
-	cv::waitKey();*/
+	return move(pred_boxes);
 }
 
-void YOLOV5::PostprocessGPU()
+vector<BoxInfo> YOLOV5::PostprocessGPU()
 {
 	int height = input_shape_.height();
 	int width = input_shape_.width();
 	int no = out_shape8_.no();
 
-	float* dev_ptr;
-	int count8 = 3 * (height / 8) * (width / 8) * no;
-	int count16 = 3 * (height / 16) * (width / 16) * no;
-	int count32 = 3 * (height / 32) * (width / 32) * no;
+	int count8 = out_shape8_.count(); // 3 * (height / 8) * (width / 8) * no;
+	int count16 = out_shape16_.count(); // 3 * (height / 16) * (width / 16) * no;
+	int count32 = out_shape32_.count();  // 3 * (height / 32) * (width / 32) * no;
 	int counts = count8 + count16 + count32;
-	cudaMalloc((void**)&dev_ptr, counts * sizeof(float));
-	cudaMemcpy(dev_ptr, d_output_tensor8_, count8 * sizeof(float), cudaMemcpyDeviceToDevice);
-	cudaMemcpy(dev_ptr + count8, d_output_tensor16_, count16 * sizeof(float), cudaMemcpyDeviceToDevice);
-	cudaMemcpy(dev_ptr + count8 + count16, d_output_tensor32_, count32 * sizeof(float), cudaMemcpyDeviceToDevice);
 
-	postprocess(dev_ptr, height, width, no, counts);
+	cudaMemcpy(dev_ptr_, d_output_tensor8_, count8 * sizeof(float), cudaMemcpyDeviceToDevice);
+	cudaMemcpy(dev_ptr_ + count8, d_output_tensor16_, count16 * sizeof(float), cudaMemcpyDeviceToDevice);
+	cudaMemcpy(dev_ptr_ + count8 + count16, d_output_tensor32_, count32 * sizeof(float), cudaMemcpyDeviceToDevice);
 
-	cudaMemcpy(h_output_tensor8_, dev_ptr, count8 * sizeof(float), cudaMemcpyDeviceToHost);
-	cudaMemcpy(h_output_tensor16_, dev_ptr + count8, count16 * sizeof(float), cudaMemcpyDeviceToHost);
-	cudaMemcpy(h_output_tensor32_, dev_ptr + count8 + count16, count32 * sizeof(float), cudaMemcpyDeviceToHost);
+	postprocess(dev_ptr_, height, width, no, counts);
+
+	cudaMemcpy(h_output_tensor8_, dev_ptr_, count8 * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_output_tensor16_, dev_ptr_ + count8, count16 * sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_output_tensor32_, dev_ptr_ + count8 + count16, count32 * sizeof(float), cudaMemcpyDeviceToHost);
 
 	filted_pred_boxes_.clear();
 	DecodeBoxesGPU(h_output_tensor8_, out_shape8_.channels(), out_shape8_.height(), out_shape8_.width());
 	DecodeBoxesGPU(h_output_tensor16_, out_shape16_.channels(), out_shape16_.height(), out_shape16_.width());
 	DecodeBoxesGPU(h_output_tensor32_, out_shape32_.channels(), out_shape32_.height(), out_shape32_.width());
-	cout << "filted_pred_boxes_ size: " << filted_pred_boxes_.size() << endl;
 
 	vector<BoxInfo> pred_boxes = NMS();
-	cout << "pred boxes size: " << pred_boxes.size() << endl;
 
-	/*cv::Mat img = cv::imread("float_sample2.jpg");
-	for (auto& box : pred_boxes)
-	{
-		cv::rectangle(img, cv::Rect(box.x1, box.y1,
-			box.x2 - box.x1, box.y2 - box.y1), cv::Scalar(0, 0, 255), 2);
-	}
-	cv::imshow("img", img);
-	cv::waitKey();*/
-
-	cudaFree(dev_ptr);
+	return move(pred_boxes);
 }
 
 void YOLOV5::DecodeBoxes(float* ptr, int channels, int height, int width, int stride, int layer_idx)
@@ -383,8 +381,8 @@ vector<BoxInfo> YOLOV5::NMS()
 		return pred_boxes;
 
 	sort(filted_pred_boxes_.begin(), filted_pred_boxes_.end(), compose);
-	RefineBoxes();
 
+	RefineBoxes();
 	char* removed = (char*)malloc(filted_pred_boxes_.size() * sizeof(char));
 	memset(removed, 0, filted_pred_boxes_.size() * sizeof(char));
 	for (int i = 0; i < filted_pred_boxes_.size(); i++)
@@ -423,23 +421,25 @@ void YOLOV5::RefineBoxes()
 
 float YOLOV5::IOU(BoxInfo& b1, BoxInfo& b2)
 {
-	b1.x1 = min<float>(max<float>(b1.x1, 0.), 640.);
-	b1.y1 = min<float>(max<float>(b1.y1, 0.), 640.);
-	b1.x2 = min<float>(max<float>(b1.x2, 0.), 640.);
-	b1.y2 = min<float>(max<float>(b1.y2, 0.), 640.);
+	float x1 = b1.x1 > b2.x1 ? b1.x1 : b2.x1;
+	float y1 = b1.y1 > b2.y1 ? b1.y1 : b2.y1;
+	float x2 = b1.x2 < b2.x2 ? b1.x2 : b2.x2;
+	float y2 = b1.y2 < b2.y2 ? b1.y2 : b2.y2;
 
-	b2.x1 = min<float>(max<float>(b2.x1, 0.), 640.);
-	b2.y1 = min<float>(max<float>(b2.y1, 0.), 640.);
-	b2.x2 = min<float>(max<float>(b2.x2, 0.), 640.);
-	b2.y2 = min<float>(max<float>(b2.y2, 0.), 640.);
+	float inter_area = ((x2 - x1) < 0 ? 0 : (x2 - x1)) * ((y2 - y1) < 0 ? 0 : (y2 - y1));
+	float b1_area = (b1.x2 - b1.x1) * (b1.y2 - b1.y1);
+	float b2_area = (b2.x2 - b2.x1) * (b2.y2 - b2.y1);
 
-	float x1 = max<float>(b1.x1, b2.x1);
-	float y1 = max<float>(b1.y1, b2.y1);
-	float x2 = min<float>(b1.x2, b2.x2);
-	float y2 = min<float>(b1.y2, b2.y2);
-
-	float inter_area = max<float>(x2 - x1, 0) * max<float>(y2 - y1, 0);
-	float b1_area = max<float>(b1.x2 - b1.x1, 0) * max<float>(b1.y2 - b1.y1, 0);
-	float b2_area = max<float>(b2.x2 - b2.x1, 0) * max<float>(b2.y2 - b2.y1, 0);
 	return inter_area / (b1_area + b2_area - inter_area + 1e-5);
+}
+
+void YOLOV5::coord_scale(vector<BoxInfo>& pred_boxes)
+{
+	for (auto& box : pred_boxes)
+	{
+		box.x1 /= rate_;
+		box.x2 /= rate_;
+		box.y1 /= rate_;
+		box.y2 /= rate_;
+	}
 }

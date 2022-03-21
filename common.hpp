@@ -13,15 +13,16 @@ public:
 	Shape(int num, int channels, int height, int width, int no=1) :
 		num_(num), channels_(channels), height_(height), width_(width), no_(no) {}
 
-	inline int num() { return num_; }
-	inline int channels() { return channels_; }
-	inline int height() { return height_; }
-	inline int width() { return width_; }
-	inline int no() { return no_; }
-	inline int count() { return num_* channels_* height_* width_* no_; }
+	inline const int num() { return num_; }
+	inline const int channels() { return channels_; }
+	inline const int height() { return height_; }
+	inline const int width() { return width_; }
+	inline const int no() { return no_; }
+	inline const int count() { return num_ * channels_ * height_ * width_ * no_; }
 
 	inline void set_height(int height) { height_ = height; }
 	inline void set_width(int width) { width_ = width; }
+	inline void set_no(int no) { no_ = no; }
 
 	void Reshape(int num, int channels, int height, int width)
 	{
@@ -36,7 +37,7 @@ private:
 	int channels_;
 	int height_;
 	int width_;
-	int no_;
+	int no_; // 模型在每一个anchor的输出数量(4(xywh) + 1(obj) + num_classes)
 };
 
 class Tensor2VecMat
