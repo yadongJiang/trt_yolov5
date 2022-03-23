@@ -135,6 +135,7 @@ void mysize(uchar* ptr, float* d_input_tensor,
 	cudaMalloc((void**)&d_img, channel * src_h * src_w * sizeof(uchar));
 	cudaMemcpy(d_img, ptr, channel * src_h * src_w * sizeof(uchar), cudaMemcpyHostToDevice);
 	
+	// dst_w与dst_h一定可以被32整除，不需要考虑不能整除的情况
 	dim3 grids(dst_w / 32, dst_h / 32);
 	dim3 blocks(32, 32);
 
