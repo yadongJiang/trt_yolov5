@@ -73,6 +73,7 @@ private:
 private:
 	void Forward();
 	void PreprocessCPU(const cv::Mat& img);
+	void PreprocessGPU(const cv::Mat& img);
 	
 	vector<BoxInfo> PostprocessCPU();
 	vector<BoxInfo> PostprocessGPU();

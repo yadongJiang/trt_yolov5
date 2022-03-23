@@ -78,3 +78,68 @@ void postprocess(float* dev_ptr, int height, int width, int no, int counts)
 	dim3 blocks(32);
 	process_kernel << <grids, blocks >> > (dev_ptr, height, width, no, counts / no); 
 }
+
+__global__ void kernel_resize(float *d_dst, int channel,
+							  int src_h, int src_w,
+							  int dst_h, int dst_w,
+							  int top, int bottom, int left, int right,
+							  uchar* d_src)
+{
+	int x = blockIdx.x * blockDim.x + threadIdx.x;
+	int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+	int offset = y * dst_w + x;
+
+	if (y < top || y >= dst_h - bottom || x < left || x >= dst_w - right)
+	{
+		d_dst[dst_h * dst_w * 0 + offset] = 114. / 255.;
+		d_dst[dst_h * dst_w * 1 + offset] = 114. / 255.;
+		d_dst[dst_h * dst_w * 2 + offset] = 114. / 255.;
+
+		return;
+	}
+
+	float scale_x = float(src_w) / dst_w;
+	float scale_y = float(src_h) / dst_h;
+
+	float src_x = (x + 0.5) * scale_x - 0.5;
+	float src_y = (y + 0.5) * scale_y - 0.5;
+
+	int src_x_0 = int(floor(src_x));
+	int src_y_0 = int(floor(src_y));
+	int src_x_1 = src_x_0 + 1 <= src_w - 1 ? src_x_0 + 1 : src_w - 1; 
+	int src_y_1 = src_y_0 + 1 <= src_h - 1 ? src_y_0 + 1 : src_h - 1; 
+
+	for (int c = 0; c < channel; c++)
+	{
+		uchar v00 = d_src[(src_y_0 * src_w + src_x_0) * channel + c];
+		uchar v01 = d_src[(src_y_0 * src_w + src_x_1) * channel + c];
+		uchar v10 = d_src[(src_y_1 * src_w + src_x_0) * channel + c];
+		uchar v11 = d_src[(src_y_1 * src_w + src_x_1) * channel + c];
+		uchar value0 = (src_x_1 - src_x) * v00 + (src_x - src_x_0) * v01;
+		uchar value1 = (src_x_1 - src_x) * v10 + (src_x - src_x_0) * v11;
+
+		uchar value = uchar((src_y_1 - src_y) * value0 + (src_y - src_y_0) * value1);
+		float v = float(value) / 255.;
+		d_dst[(2 - c) * dst_h * dst_w + offset] = v;
+	}
+}
+
+void mysize(uchar* ptr, float* d_input_tensor,
+			int channel, 
+			int src_h, int src_w,
+			int dst_h, int dst_w,
+			int top, int bottom, int left, int right)
+{
+	uchar* d_img;
+	cudaMalloc((void**)&d_img, channel * src_h * src_w * sizeof(uchar));
+	cudaMemcpy(d_img, ptr, channel * src_h * src_w * sizeof(uchar), cudaMemcpyHostToDevice);
+	
+	dim3 grids(dst_w / 32, dst_h / 32);
+	dim3 blocks(32, 32);
+
+	kernel_resize << <grids, blocks >> > (d_input_tensor, channel, 
+										  src_h, src_w, dst_h, dst_w, 
+										  top, bottom, left, right, d_img);
+	cudaFree(d_img);
+}

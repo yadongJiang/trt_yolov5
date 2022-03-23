@@ -178,12 +178,16 @@ vector<BoxInfo> YOLOV5::Extract(const cv::Mat& img)
 {
 	if (img.empty())
 		return {};
-
 	
-	PreprocessCPU(img);
+	// 预处理gpu接口
+	PreprocessGPU(img);
+	// 预处理cpu接口
+	/*PreprocessCPU(img);*/
 	Forward();
 
+	// 后处理cpu接口
 	/*auto pred_boxes = PostprocessCPU();*/
+	// 后处理gpu接口
 	auto pred_boxes = PostprocessGPU();
 	coord_scale(pred_boxes);
 	return move(pred_boxes);
@@ -222,6 +226,25 @@ void YOLOV5::PreprocessCPU(const cv::Mat& img)
 	std::vector<cv::Mat> channels = tensor2mat(h_input_tensor_, sample_float.channels(), 
 											   sample_float.rows, sample_float.cols);
 	cv::split(sample_float, channels);
+}
+
+void YOLOV5::PreprocessGPU(const cv::Mat& img)
+{
+	uchar* img_cpu_ptr = img.data;
+	int top = 0, bottom = 0, left = 0, right = 0;
+	letter_resize(img, rate_, top, bottom, left, right, 32, crop_size_);
+	int dst_w = int(round(rate_ * img.cols));
+	int dst_h = int(round(rate_ * img.rows));
+	dst_w += (left + right);
+	dst_h += (top + bottom);
+
+	mysize(img.data, d_input_tensor_, 3, img.rows, img.cols, 
+		   dst_h, dst_w, top, bottom, left, right);
+
+	input_shape_.Reshape(1, 3, dst_h, dst_w);
+	out_shape8_.Reshape(1, 3, dst_h / 8, dst_w / 8);
+	out_shape16_.Reshape(1, 3, dst_h / 16, dst_w / 16);
+	out_shape32_.Reshape(1, 3, dst_h / 32, dst_w / 32);
 }
 
 vector<BoxInfo> YOLOV5::PostprocessCPU()
