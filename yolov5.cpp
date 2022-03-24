@@ -333,10 +333,10 @@ void YOLOV5::DecodeBoxes(float* ptr, int channels, int height, int width, int st
 				ptr[offset + 3] = pow(ptr[offset + 3] * 2.0, 2) * anchor[1];
 
 				BoxInfo box(ptr[offset + 0] - ptr[offset + 2] / 2,
-							ptr[offset + 1] - ptr[offset + 3] / 2,
-							ptr[offset + 0] + ptr[offset + 2] / 2,
-							ptr[offset + 1] + ptr[offset + 3] / 2,
-						    class_conf, score, class_pred);
+					ptr[offset + 1] - ptr[offset + 3] / 2,
+					ptr[offset + 0] + ptr[offset + 2] / 2,
+					ptr[offset + 1] + ptr[offset + 3] / 2,
+					class_conf, score, class_pred);
 
 				filted_pred_boxes_.emplace_back(box);
 			}

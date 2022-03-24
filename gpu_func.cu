@@ -1,8 +1,8 @@
 #include "gpu_func.cuh"
 
 __constant__  float con_anchors[18] = { 10, 13 , 16, 30, 33, 23, 
-										30, 61, 62, 45, 59, 119, 
-										116, 90, 156, 198, 373, 326 };
+			30, 61, 62, 45, 59, 119, 
+			116, 90, 156, 198, 373, 326 };
 
 __device__ void dev_sigmoid(float* ptr, int len)
 {
@@ -143,7 +143,7 @@ void mysize(uchar* ptr, float* d_input_tensor,
 	dim3 blocks(32, 32);
 
 	kernel_resize << <grids, blocks >> > (d_input_tensor, channel, 
-										  src_h, src_w, dst_h, dst_w, 
-										  top, bottom, left, right, d_img);
+				src_h, src_w, dst_h, dst_w, 
+				top, bottom, left, right, d_img);
 	cudaFree(d_img);
 }
