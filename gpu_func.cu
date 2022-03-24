@@ -90,6 +90,7 @@ __global__ void kernel_resize(float *d_dst, int channel,
 
 	int offset = y * dst_w + x;
 
+	// padding
 	if (y < top || y >= dst_h - bottom || x < left || x >= dst_w - right)
 	{
 		d_dst[dst_h * dst_w * 0 + offset] = 114. / 255.;
@@ -112,15 +113,17 @@ __global__ void kernel_resize(float *d_dst, int channel,
 
 	for (int c = 0; c < channel; c++)
 	{
+		// 双线性插值
 		uchar v00 = d_src[(src_y_0 * src_w + src_x_0) * channel + c];
 		uchar v01 = d_src[(src_y_0 * src_w + src_x_1) * channel + c];
 		uchar v10 = d_src[(src_y_1 * src_w + src_x_0) * channel + c];
 		uchar v11 = d_src[(src_y_1 * src_w + src_x_1) * channel + c];
 		uchar value0 = (src_x_1 - src_x) * v00 + (src_x - src_x_0) * v01;
 		uchar value1 = (src_x_1 - src_x) * v10 + (src_x - src_x_0) * v11;
-
 		uchar value = uchar((src_y_1 - src_y) * value0 + (src_y - src_y_0) * value1);
+		// 归一化
 		float v = float(value) / 255.;
+		// BGR->RGB
 		d_dst[(2 - c) * dst_h * dst_w + offset] = v;
 	}
 }
