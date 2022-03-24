@@ -189,7 +189,7 @@ vector<BoxInfo> YOLOV5::Extract(const cv::Mat& img)
 	/*auto pred_boxes = PostprocessCPU();*/
 	// 后处理gpu接口
 	auto pred_boxes = PostprocessGPU();
-	coord_scale(pred_boxes);
+	coord_scale(img, pred_boxes);
 	return move(pred_boxes);
 }
 
@@ -456,13 +456,24 @@ float YOLOV5::IOU(BoxInfo& b1, BoxInfo& b2)
 	return inter_area / (b1_area + b2_area - inter_area + 1e-5);
 }
 
-void YOLOV5::coord_scale(vector<BoxInfo>& pred_boxes)
+void YOLOV5::coord_scale(const cv::Mat &img, vector<BoxInfo>& pred_boxes)
 {
+	int h = int(round(img.rows * rate_));
+	int w = int(round(img.cols * rate_));
+
+	int dw = (crop_size_.width - w) % 32;
+	int dh = (crop_size_.height - h) % 32;
+	dw /= 2;
+	dh /= 2;
+
+	int top = int(round(dh - 0.1));
+	int left = int(round(dw - 0.1));
+	
 	for (auto& box : pred_boxes)
 	{
-		box.x1 /= rate_;
-		box.x2 /= rate_;
-		box.y1 /= rate_;
-		box.y2 /= rate_;
+		box.x1 = (box.x1 - left) / rate_;
+		box.x2 = (box.x2 - left) / rate_;
+		box.y1 = (box.y1 - top)/ rate_;
+		box.y2 = (box.y2 - top) / rate_;
 	}
 }

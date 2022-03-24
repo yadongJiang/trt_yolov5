@@ -100,7 +100,7 @@ private:
 
 	inline float IOU(BoxInfo& b1, BoxInfo& b2);
 
-	void coord_scale(vector<BoxInfo>& pred_boxes);
+	void coord_scale(const cv::Mat &img, vector<BoxInfo>& pred_boxes);
 
 private:
 	OnnxDynamicNetInitParam params_;
