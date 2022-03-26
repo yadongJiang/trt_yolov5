@@ -179,8 +179,8 @@ vector<BoxInfo> YOLOV5::Extract(const cv::Mat& img)
 	if (img.empty())
 		return {};
 
-	PreprocessCPU(img);
-	/*PreprocessGPU(img);*/
+	/*PreprocessCPU(img);*/
+	PreprocessGPU(img);
 	Forward();
 
 	auto pred_boxes = PostprocessCPU();
@@ -239,7 +239,6 @@ void YOLOV5::PreprocessGPU(const cv::Mat& img)
 
 	mysize(img.data, d_input_tensor_, 3, img.rows, img.cols, 
 		   dst_h, dst_w, top, bottom, left, right);
-	/*cout << "top: " << top << " bottom: " << bottom << " left: " << left << " right: " << right << endl;*/
 
 	input_shape_.Reshape(1, 3, dst_h, dst_w);
 	out_shape8_.Reshape(1, 3, dst_h / 8, dst_w / 8);
@@ -262,15 +261,6 @@ vector<BoxInfo> YOLOV5::PostprocessCPU()
 
 	vector<BoxInfo> pred_boxes = NMS();
 	cout << "pred boxes size: " << pred_boxes.size() << endl;
-
-	/*cv::Mat img = cv::imread("float_sample2.jpg");
-	for (auto& box : pred_boxes)
-	{
-		cv::rectangle(img, cv::Rect(box.x1, box.y1,
-			box.x2 - box.x1, box.y2 - box.y1), cv::Scalar(0, 0, 255), 2);
-	}
-	cv::imshow("img", img);
-	cv::waitKey();*/
 
 	return move(pred_boxes);
 }
@@ -304,15 +294,6 @@ vector<BoxInfo> YOLOV5::PostprocessGPU()
 
 	vector<BoxInfo> pred_boxes = NMS();
 	cout << "pred boxes size: " << pred_boxes.size() << endl;
-
-	/*cv::Mat img = cv::imread("leter_resize.jpg");
-	for (auto& box : pred_boxes)
-	{
-		cv::rectangle(img, cv::Rect(box.x1, box.y1,
-			box.x2 - box.x1, box.y2 - box.y1), cv::Scalar(0, 0, 255), 2);
-	}
-	cv::imshow("img", img);
-	cv::waitKey();*/
 
 	return move(pred_boxes);
 }
