@@ -56,16 +56,16 @@ public:
 		dw = dw % stride_;
 		dh = dh % stride_;
 
-		dw /= 2;
-		dh /= 2;
+		float fdw = dw / 2.;
+		float fdh = dh / 2.;
 
 		cv::Mat resize_mat;
 		if (img.rows != new_unpad.height || img.cols != new_unpad.width)
 			cv::resize(img, resize_mat, new_unpad, 0, 0, cv::INTER_LINEAR);
-		int top = int(round(dh - 0.1));
-		int bottom = int(round(dh + 0.1));
-		int left = int(round(dw - 0.1));
-		int right = int(round(dw + 0.1));
+		int top = int(round(fdh - 0.1));
+		int bottom = int(round(fdh + 0.1));
+		int left = int(round(fdw - 0.1));
+		int right = int(round(fdw + 0.1));
 		cv::Mat pad_mat;
 		cv::copyMakeBorder(resize_mat, pad_mat, top, bottom, left, right, cv::BORDER_CONSTANT, color_);
 

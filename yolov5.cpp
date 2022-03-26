@@ -178,24 +178,19 @@ vector<BoxInfo> YOLOV5::Extract(const cv::Mat& img)
 {
 	if (img.empty())
 		return {};
-	
-	// 预处理gpu接口
-	PreprocessGPU(img);
-	// 预处理cpu接口
-	/*PreprocessCPU(img);*/
+
+	PreprocessCPU(img);
+	/*PreprocessGPU(img);*/
 	Forward();
 
-	// 后处理cpu接口
-	/*auto pred_boxes = PostprocessCPU();*/
-	// 后处理gpu接口
-	auto pred_boxes = PostprocessGPU();
+	auto pred_boxes = PostprocessCPU();
+	/*auto pred_boxes = PostprocessGPU();*/
 	coord_scale(img, pred_boxes);
 	return move(pred_boxes);
 }
 
 void YOLOV5::Forward()
 {
-	cudaMemcpy(d_input_tensor_, h_input_tensor_, input_shape_.count() * sizeof(float), cudaMemcpyHostToDevice);
 	nvinfer1::Dims4 input_dims{ 1, input_shape_.channels(), input_shape_.height(), input_shape_.width() };
 	context_->setBindingDimensions(0, input_dims);
 	context_->enqueueV2(buffers_.data(), stream_, nullptr);
@@ -215,7 +210,9 @@ void YOLOV5::PreprocessCPU(const cv::Mat& img)
 	cv::Mat sample_float = compose(img_tmp);
 
 	// 为了最后将检测框映射会原图尺度
-	rate_ = (float)sample_float.rows / img.rows;
+	float rh = (float)sample_float.rows / img.rows;
+	float rw = (float)sample_float.cols / img.cols;
+	rate_ = rh < rw ? rh : rw;
 
 	input_shape_.Reshape(1, sample_float.channels(), sample_float.rows, sample_float.cols);
 	out_shape8_.Reshape(1, 3, sample_float.rows / 8, sample_float.cols / 8);
@@ -226,6 +223,8 @@ void YOLOV5::PreprocessCPU(const cv::Mat& img)
 	std::vector<cv::Mat> channels = tensor2mat(h_input_tensor_, sample_float.channels(), 
 											   sample_float.rows, sample_float.cols);
 	cv::split(sample_float, channels);
+
+	cudaMemcpy(d_input_tensor_, h_input_tensor_, input_shape_.count() * sizeof(float), cudaMemcpyHostToDevice);
 }
 
 void YOLOV5::PreprocessGPU(const cv::Mat& img)
@@ -240,6 +239,7 @@ void YOLOV5::PreprocessGPU(const cv::Mat& img)
 
 	mysize(img.data, d_input_tensor_, 3, img.rows, img.cols, 
 		   dst_h, dst_w, top, bottom, left, right);
+	/*cout << "top: " << top << " bottom: " << bottom << " left: " << left << " right: " << right << endl;*/
 
 	input_shape_.Reshape(1, 3, dst_h, dst_w);
 	out_shape8_.Reshape(1, 3, dst_h / 8, dst_w / 8);
@@ -262,6 +262,15 @@ vector<BoxInfo> YOLOV5::PostprocessCPU()
 
 	vector<BoxInfo> pred_boxes = NMS();
 	cout << "pred boxes size: " << pred_boxes.size() << endl;
+
+	/*cv::Mat img = cv::imread("float_sample2.jpg");
+	for (auto& box : pred_boxes)
+	{
+		cv::rectangle(img, cv::Rect(box.x1, box.y1,
+			box.x2 - box.x1, box.y2 - box.y1), cv::Scalar(0, 0, 255), 2);
+	}
+	cv::imshow("img", img);
+	cv::waitKey();*/
 
 	return move(pred_boxes);
 }
@@ -291,8 +300,19 @@ vector<BoxInfo> YOLOV5::PostprocessGPU()
 	DecodeBoxesGPU(h_output_tensor8_, out_shape8_.channels(), out_shape8_.height(), out_shape8_.width());
 	DecodeBoxesGPU(h_output_tensor16_, out_shape16_.channels(), out_shape16_.height(), out_shape16_.width());
 	DecodeBoxesGPU(h_output_tensor32_, out_shape32_.channels(), out_shape32_.height(), out_shape32_.width());
+	cout << "filted_pred_boxes_ size: " << filted_pred_boxes_.size() << endl;
 
 	vector<BoxInfo> pred_boxes = NMS();
+	cout << "pred boxes size: " << pred_boxes.size() << endl;
+
+	/*cv::Mat img = cv::imread("leter_resize.jpg");
+	for (auto& box : pred_boxes)
+	{
+		cv::rectangle(img, cv::Rect(box.x1, box.y1,
+			box.x2 - box.x1, box.y2 - box.y1), cv::Scalar(0, 0, 255), 2);
+	}
+	cv::imshow("img", img);
+	cv::waitKey();*/
 
 	return move(pred_boxes);
 }
@@ -333,10 +353,10 @@ void YOLOV5::DecodeBoxes(float* ptr, int channels, int height, int width, int st
 				ptr[offset + 3] = pow(ptr[offset + 3] * 2.0, 2) * anchor[1];
 
 				BoxInfo box(ptr[offset + 0] - ptr[offset + 2] / 2,
-					ptr[offset + 1] - ptr[offset + 3] / 2,
-					ptr[offset + 0] + ptr[offset + 2] / 2,
-					ptr[offset + 1] + ptr[offset + 3] / 2,
-					class_conf, score, class_pred);
+							ptr[offset + 1] - ptr[offset + 3] / 2,
+							ptr[offset + 0] + ptr[offset + 2] / 2,
+							ptr[offset + 1] + ptr[offset + 3] / 2,
+						    class_conf, score, class_pred);
 
 				filted_pred_boxes_.emplace_back(box);
 			}
@@ -456,19 +476,19 @@ float YOLOV5::IOU(BoxInfo& b1, BoxInfo& b2)
 	return inter_area / (b1_area + b2_area - inter_area + 1e-5);
 }
 
-void YOLOV5::coord_scale(const cv::Mat &img, vector<BoxInfo>& pred_boxes)
+void YOLOV5::coord_scale(const cv::Mat& img, vector<BoxInfo>& pred_boxes)
 {
 	int h = int(round(img.rows * rate_));
 	int w = int(round(img.cols * rate_));
 
 	int dw = (crop_size_.width - w) % 32;
 	int dh = (crop_size_.height - h) % 32;
-	dw /= 2;
-	dh /= 2;
+	float fdw = dw / 2.;
+	float fdh = dh / 2.;
 
-	int top = int(round(dh - 0.1));
-	int left = int(round(dw - 0.1));
-	
+	int top = int(round(fdh - 0.1));
+	int left = int(round(fdw - 0.1));
+
 	for (auto& box : pred_boxes)
 	{
 		box.x1 = (box.x1 - left) / rate_;
