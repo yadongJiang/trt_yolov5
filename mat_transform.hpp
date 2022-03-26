@@ -95,4 +95,33 @@ private:
 	float constant_;
 };
 
+void letter_resize(const cv::Mat& img, float& r, 
+				   int& top, int& bottom, int& left, int& right,
+				   int stride = 32, cv::Size& new_shape=cv::Size(640, 640))
+{
+	int img_h = img.rows;
+	int img_w = img.cols;
+
+	int shape_h = new_shape.height;
+	int shape_w = new_shape.width;
+
+	r = std::min(float(shape_h) / float(img_h), float(shape_w) / float(img_w));
+	cout << "r: " << r << endl;
+
+	cv::Size new_unpad = cv::Size(int(round(r * img_w)), int(round(r * img_h)));
+
+	int dw = new_shape.width - new_unpad.width;
+	int dh = new_shape.height - new_unpad.height;
+	dw = dw % stride;
+	dh = dh % stride;
+
+	float fdw = dw / 2.;
+	float fdh = dh / 2.;
+
+	top = int(round(fdh - 0.1));
+	bottom = int(round(fdh + 0.1));
+	left = int(round(fdw - 0.1));
+	right = int(round(fdw + 0.1));
+}
+
 #endif
