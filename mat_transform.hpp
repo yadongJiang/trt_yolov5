@@ -62,6 +62,8 @@ public:
 		cv::Mat resize_mat;
 		if (img.rows != new_unpad.height || img.cols != new_unpad.width)
 			cv::resize(img, resize_mat, new_unpad, 0, 0, cv::INTER_LINEAR);
+		else
+			resize_mat = img;
 		int top = int(round(fdh - 0.1));
 		int bottom = int(round(fdh + 0.1));
 		int left = int(round(fdw - 0.1));
