@@ -12,11 +12,11 @@
 ```
     OnnxDynamicNetInitParam params;
     # onnx模型路径
-	params.onnx_model = "./yolov5/weights/onnx/shelf_yolov5_s.onnx";
+    params.onnx_model = "./yolov5/weights/onnx/shelf_yolov5_s.onnx";
     # 生成的engine模型的保存名称，保存路径使用的是默认路径(当前文件夹)
-	params.rt_model_name = "yolov5.engine";
+    params.rt_model_name = "yolov5.engine";
     # 类别数
-	params.num_classes = 1;
+    params.num_classes = 1;
 
     # 构造YOLOV5类对象
     YOLOV5 yolov5(params);
