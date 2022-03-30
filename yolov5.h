@@ -8,6 +8,7 @@
 #include <cuda_runtime.h>
 #include "NvOnnxParser.h"
 #include "common.hpp"
+#include <mutex>
 
 using namespace std;
 
@@ -150,6 +151,7 @@ private:
 	vector<void *> buffers_;
 
 	float rate_;
+	std::mutex mtx_;
 };
 
 #endif

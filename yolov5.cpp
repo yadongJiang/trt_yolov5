@@ -179,6 +179,7 @@ vector<BoxInfo> YOLOV5::Extract(const cv::Mat& img)
 	if (img.empty())
 		return {};
 
+	std::lock_guard<std::mutex> lock(mtx_);
 	/*PreprocessCPU(img);*/
 	PreprocessGPU(img);
 	Forward();
