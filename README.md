@@ -25,4 +25,4 @@
 ```
 
 ## 应用示例
-yolov5+tensorrt在红外微小目标的检测上，可以达到100帧以上(640x640的输入)，[视频](https://www.bilibili.com/video/BV1Fq4y1a7SS/)
+yolov5+tensorrt对红外微小目标的检测，可以达到100帧以上(640x640的输入)，[视频](https://www.bilibili.com/video/BV1Fq4y1a7SS/)
