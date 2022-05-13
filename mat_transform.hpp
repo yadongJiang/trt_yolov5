@@ -33,9 +33,9 @@ private:
 class LetterResize
 {
 public:
-	LetterResize(cv::Size& new_shape = cv::Size(640, 640),
-		cv::Scalar& color = cv::Scalar(114, 114, 114),
-		int stride = 32) :new_shape_(new_shape), color_(color), stride_(stride) {}
+	LetterResize(cv::Size new_shape = cv::Size(640, 640),
+		cv::Scalar color=cv::Scalar(114, 114, 114),
+		int stride=32) :new_shape_(new_shape), color_(color), stride_(stride) {}
 
 	cv::Mat operator()(const cv::Mat& img)
 	{
@@ -99,7 +99,7 @@ private:
 
 void letter_resize(const cv::Mat& img, float& r, 
 				   int& top, int& bottom, int& left, int& right,
-				   int stride = 32, cv::Size& new_shape=cv::Size(640, 640))
+				   int stride = 32, cv::Size new_shape=cv::Size(640, 640))
 {
 	int img_h = img.rows;
 	int img_w = img.cols;

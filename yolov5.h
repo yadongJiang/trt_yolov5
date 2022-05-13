@@ -97,7 +97,7 @@ private:
 						float& class_conf, int& class_pred);
 
 	// 调整预测框，使框的值处于合理范围
-	inline void YOLOV5::RefineBoxes();
+	inline void RefineBoxes();
 
 	inline float IOU(BoxInfo& b1, BoxInfo& b2);
 
